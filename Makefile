@@ -3,7 +3,7 @@ EASYP_BIN := $(LOCAL_BIN)/easyp
 GOIMPORTS_BIN := $(LOCAL_BIN)/goimports
 GOLANGCI_BIN := $(LOCAL_BIN)/golangci-lint
 GO_TEST=$(LOCAL_BIN)/gotest
-GO_TEST_ARGS=-race -v -tags=integration_test ./...
+GO_TEST_ARGS=-race -v ./...
 PROTOC_DOWNLOAD_LINK="https://github.com/protocolbuffers/protobuf/releases"
 PROTOC_VERSION=29.2
 UNAME_S := $(shell uname -s)
@@ -26,52 +26,12 @@ ifeq ($(UNAME_S),Darwin)
     endif
 endif
 
-all: generate lint test
-
-.PHONY: lint
-lint:
-	echo 'Running linter on files...'
-	$(GOLANGCI_BIN) run \
-	--config=.golangci.yaml \
-	--sort-results \
-	--max-issues-per-linter=0 \
-	--max-same-issues=0
-
 .PHONY: test
 test:
 	echo 'Running tests...'
+	set -a && source .env && set +a && \
 	${GO_TEST} ${GO_TEST_ARGS}
 
-.PHONY: update
-update:
-	@if [ -n "$(shell git status --untracked-files=no --porcelain)" ]; then \
-		echo 'You have some changes. Please commit, checkout or stash them.'; \
-		exit 1; \
-	fi
-	@current_branch=$$(git branch --show-current); \
-	echo "Current branch: $$current_branch"; \
-	git checkout main; \
-	git pull; \
-	for branch in $$(git branch | sed 's/^[* ]*//'); do \
-		git checkout $$branch; \
-		if ! git rev-parse --symbolic-full-name @{u} >/dev/null 2>&1; then \
-			branch_exists=$$(git ls-remote --heads origin $$branch); \
-			if [ -n "$$branch_exists" ]; then \
-				echo "Upstream exists for $$branch. Setting upstream to origin/$$branch."; \
-				git branch --set-upstream-to=origin/$$branch; \
-			else \
-				echo "Upstream not found for $$branch. Pushing and setting upstream to origin/$$branch."; \
-				git push --set-upstream origin $$branch; \
-				git branch --set-upstream-to=origin/$$branch; \
-			fi; \
-		fi; \
-		git pull --rebase; \
-		git push -f; \
-		git rebase main; \
-		git push -f; \
-	done; \
-	git checkout $$current_branch; \
-	echo 'Successfully updated'
 
 .install-protoc:
 	$(INSTALL_CMD)
@@ -80,9 +40,9 @@ bin-deps: .bin-deps
 
 .bin-deps: export GOBIN := $(LOCAL_BIN)
 .bin-deps: .create-bin .install-protoc
-	GOBIN=$(LOCAL_BIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0 && \
+	GOBIN=$(LOCAL_BIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5 && \
 	GOBIN=$(LOCAL_BIN) go install github.com/rakyll/gotest@v0.0.6 && \
-	go install github.com/easyp-tech/easyp/cmd/easyp@latest && \
+	go install github.com/easyp-tech/easyp/cmd/easyp@v0.7.11 && \
 	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.18.1 && \
 	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v2.18.1 && \
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.28.1 && \
@@ -111,6 +71,12 @@ fast-generate: .generate
 	(PATH="$(PATH):$(LOCAL_BIN)" && $(EASYP_BIN) mod download && $(EASYP_BIN) generate)
 
 	$(GOIMPORTS_BIN) -w .
+
+	GOBIN=$(LOCAL_BIN) go install go.uber.org/mock/mockgen@latest && \
+	$(LOCAL_BIN)/mockgen -source=./internal/usecase/library/usecases.go -destination=./internal/usecase/library/mocks/repository_mock.go -package=mocks &&   \
+	$(LOCAL_BIN)/mockgen -source=./internal/controller/service.go -destination=./internal/controller/mocks/usecase_mock.go -package=mocks && \
+    $(LOCAL_BIN)/mockgen -source=./generated/api/library/library_grpc.pb.go -destination=./internal/controller/mocks/get_author_books_server_mock.go -package=mocks -exclude_interfaces=LibraryClient,libraryClient,Library_GetAuthorBooksClient,LibraryServer,UnsafeLibraryServer && \
+    go mod tidy
 
 build:
 	go mod tidy

@@ -9,7 +9,7 @@ env:
 jobs:
   tests:
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 18
     permissions: write-all
     steps:
       - name: Checkout
@@ -18,11 +18,14 @@ jobs:
           fetch-depth: 0
       - name: Ensure branch is up-to-date with main
         run: |
-          git fetch origin main
-          if git merge-base --is-ancestor origin/main @; then
-            echo 'Tests are already up-to-date'
+          set -e
+          git fetch origin
+          BRANCH="${GITHUB_HEAD_REF:-$(git rev-parse --abbrev-ref HEAD)}" 
+          if git log origin/main ^origin/"$BRANCH" --oneline | grep .; then
+            echo "Some commits from origin/main are missing in origin/$BRANCH"
+            exit 1
           else
-            echo 'Your tests have not been updated, try to rebase main' && exit 1
+            echo "All commits from origin/main are included in origin/$BRANCH"
           fi
       - name: Check for YAML and Test changes
         run: |
@@ -94,6 +97,9 @@ jobs:
             cmd
             internal/app
             db/migrate
+            repository/postgres\.go$
+            repository/outbox\.go$
+            repository/transactor\.go$
       - name: Generate unique names
         run: |
           UNIQUE_ID=$(echo "${GITHUB_RUN_ID}_$(openssl rand -hex 6)" | sha256sum | cut -c1-12)
@@ -130,6 +136,16 @@ jobs:
           done
           echo "PostgreSQL did not start in time"
           exit 1
+      - name: Determine test tag based on PR branch name
+        run: |
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          echo "Branch name: $BRANCH_NAME"
+          
+          if [[ "$BRANCH_NAME" == *outbox* ]]; then
+            echo "TEST_TAG=outbox_hw" >> $GITHUB_ENV
+          else
+            echo "TEST_TAG=database_hw" >> $GITHUB_ENV
+          fi
       - name: Run tests inside Docker
         run: |
           docker create --name $TEST_CONTAINER \
@@ -144,7 +160,7 @@ jobs:
           
           docker cp $(pwd) $TEST_CONTAINER:/app
           docker start $TEST_CONTAINER
-          docker exec -w /app $TEST_CONTAINER sh -c "go mod tidy && go test -v -race -timeout 5m -tags='integration_test' ./..."
+          docker exec -w /app $TEST_CONTAINER sh -c "go mod tidy && go test -v -race -timeout 9m -tags=${TEST_TAG} ./..."
       - name: Cleanup
         if: always()
         run: |

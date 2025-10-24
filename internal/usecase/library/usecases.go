@@ -1,9 +1,10 @@
-package repository
+package library
 
 import (
 	"context"
 
 	"github.com/project/library/internal/entity"
+	"go.uber.org/zap"
 )
 
 type (
@@ -20,3 +21,24 @@ type (
 		GetAuthorBooks(ctx context.Context, idAuthor string) (<-chan entity.Book, error)
 	}
 )
+
+var _ AuthorUseCase = (*libraryImpl)(nil)
+var _ BooksUseCase = (*libraryImpl)(nil)
+
+type libraryImpl struct {
+	logger           *zap.Logger
+	authorRepository AuthorRepository
+	booksRepository  BooksRepository
+}
+
+func New(
+	logger *zap.Logger,
+	authorRepository AuthorRepository,
+	booksRepository BooksRepository,
+) *libraryImpl {
+	return &libraryImpl{
+		logger:           logger,
+		authorRepository: authorRepository,
+		booksRepository:  booksRepository,
+	}
+}

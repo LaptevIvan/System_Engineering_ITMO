@@ -5,3 +5,6 @@
 /cover.out
 /cover.out.tmp
 .env
+*.sh
+mocks/*
+
